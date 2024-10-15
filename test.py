@@ -2,7 +2,7 @@ import os
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from sklearn.metrics import roc_auc_score, accuracy_score, confusion_matrix, fbeta_score, roc_curve
+from sklearn.metrics import roc_auc_score, accuracy_score, fbeta_score, roc_curve
 import numpy as np
 import json
 from torchprofile import profile_macs
@@ -18,14 +18,14 @@ from model.tinyvad import TinyVAD
 from function.util import calculate_fpr_fnr
 
 WINDOW_SIZE = 0.63
-MEDIAN_KERNEL_SIZE = 9
+# MEDIAN_KERNEL_SIZE = 9
 THRESHOLD = 0.5
 
 # Set GPU and paths
-os.environ['CUDA_VISIBLE_DEVICES'] = '2'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 font_prop = FontProperties(fname='/share/nas169/jethrowang/fonts/Times_New_Roman.ttf', size=13)
-exp_dir = './exp/exp_tinyvad'
+exp_dir = './exp/exp_0.63_tinyvad'
 os.makedirs(exp_dir, exist_ok=True)
 
 # Load test dataset and model
@@ -42,9 +42,8 @@ elif WINDOW_SIZE == 0.16:
 elif WINDOW_SIZE == 0.025:
     patch_size = 1
     frame_size = 3
-    
 model = TinyVAD(1, 32, 64, patch_size, 2).to(device)
-model.load_state_dict(torch.load(os.path.join(exp_dir, 'model.ckpt')))
+model.load_state_dict(torch.load(os.path.join(exp_dir, 'model_epoch_104_auroc=0.9161.ckpt')))
 model.eval()
 
 # Evaluation variables
@@ -66,30 +65,23 @@ with torch.no_grad():
         # Apply median filter to each batch's predictions
         # val_outputs_np = val_outputs.cpu().numpy()
         # val_outputs_smoothed = torch.tensor(median_filter(val_outputs_np, size=(MEDIAN_KERNEL_SIZE, 1))).to(device)
-
-        # Segment-level prediction: average all frame-level predictions
-        segment_pred = val_outputs.mean().item()  # Convert tensor to scalar
         
-        # Compare the segment prediction with threshold to get the final segment-level label
-        # if segment_pred >= THRESHOLD:
-        #     final_segment_pred = 1.0
-        # else:
-        #     final_segment_pred = 0.0
+        val_outputs_avg = val_outputs.mean().unsqueeze(0)
+        val_outputs_list.append(val_outputs_avg)
 
-        # Collect segment-level labels and predictions
-        val_labels_list.append(val_labels.mean().item())  # Segment-level label (average the labels)
-        val_outputs_list.append(segment_pred)       # Segment-level prediction
+        val_labels_list.append(val_labels[0].unsqueeze(0))
 
+        # Record inference time
         inference_time = (end_time - start_time) * 1000  # Convert to milliseconds
         inference_times.append(inference_time)
     
 # Concatenate results
-val_labels_cat = np.array(val_labels_list)
-val_outputs_cat = np.array(val_outputs_list)
+val_labels_cat = torch.cat(val_labels_list, dim=0).cpu().numpy()
+val_outputs_cat = torch.cat(val_outputs_list, dim=0).cpu().numpy()
 
 # Metrics calculation
 auroc = roc_auc_score(val_labels_cat, val_outputs_cat)
-binarized_preds = (val_outputs_cat >= THRESHOLD).astype(float)
+binarized_preds = torch.tensor(val_outputs_cat >= THRESHOLD).float().cpu().numpy()
 accuracy = accuracy_score(val_labels_cat, binarized_preds)
 f2_score = fbeta_score(val_labels_cat, binarized_preds, beta=2)
 avg_inference_time = sum(inference_times) / len(inference_times)
@@ -135,7 +127,7 @@ plt.savefig(os.path.join(exp_dir, 'auroc_plot.png'), dpi=800)
 plt.show()
 
 # FPR/FNR calculation
-fpr, fnr = calculate_fpr_fnr(val_labels_cat, binarized_preds)
+fpr, fnr = calculate_fpr_fnr(val_labels_cat, val_outputs_cat)
 
 # Save results and model information
 results = {

@@ -7,19 +7,18 @@ from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import LambdaLR
 import wandb
 from tqdm import tqdm
-import numpy as np
 from sklearn.metrics import roc_auc_score
 
-from data.dataset import SCF, SCF_ESC
+from data.dataset import SCF, SCF_ESC, AVA
 from model.tinyvad import TinyVAD
 from function.roc_star import epoch_update_gamma, roc_star_loss
-from function.util import lr_lambda, save_top_k_model_with_loss
+from function.util import lr_lambda, save_top_k_model_with_auroc, calculate_fpr_fnr
 
 # Set GPU
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-name = 'exp_esc_frame_tinyvad'
+name = f'exp_0.16_esc_tinyvad'
 exp_dir = f'./exp/{name}/'
 os.makedirs(exp_dir, exist_ok=True)
 
@@ -38,7 +37,7 @@ wandb.init(project="TinyVAD", name=name, config={
     "roc_star": False,
     "roc_star_weight": 0.0,
     "train_with_esc": True,
-    "window_size": 0.025,
+    "window_size": 0.16,
 })
 config = wandb.config
 
@@ -53,7 +52,7 @@ logging.getLogger().addHandler(console)
 
 # Load datasets
 train_manifests = ['./data/manifest/balanced_background_training_manifest.json', './data/manifest/balanced_speech_training_manifest.json']
-val_manifests = ['./data/manifest/balanced_background_validation_manifest.json', './data/manifest/balanced_speech_validation_manifest.json']
+val_dir = '/share/nas165/aaronelyu/Datasets/AVA-speech/'
 logging.info('Loading training set...')
 if config.train_with_esc:
     train_dataset = SCF_ESC(
@@ -67,9 +66,9 @@ else:
     train_dataset = SCF(train_manifests, sample_duration=config.window_size, augment=config.augment)
 train_loader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True)
 logging.info(f'Training set size: {len(train_loader)}')
-logging.info(f'Loading validation set...')
-val_dataset = SCF(val_manifests, sample_duration=config.window_size)
-val_loader = DataLoader(val_dataset, batch_size=config.batch_size)
+logging.info('Loading validation set...')
+val_dataset = AVA(root_dir=val_dir, sample_duration=config.window_size)
+val_loader = DataLoader(val_dataset, batch_size=1)
 logging.info(f'Validation set size: {len(val_loader)}')
 logging.info('Finish loading dataset!')
 print('------------------------------')
@@ -88,13 +87,11 @@ bce_criterion = nn.BCELoss()
 optimizer = optim.SGD(model.parameters(), lr=config.learning_rate, momentum=config.momentum, weight_decay=config.weight_decay)
 scheduler = LambdaLR(optimizer, lr_lambda=lambda step: lr_lambda(step, len(train_loader) * config.epochs, config.warmup_ratio, config.hold_ratio, config.learning_rate, config.min_lr))
 
-top_k_val_losses = []
 epoch_gamma = 0.20
+top_3_auc_scores = []
 
 # Training loop
 for epoch in range(config.epochs):
-    logging.info(f'Epoch [{epoch + 1}/{config.epochs}]')
-
     model.train()
     running_loss = 0.0
 
@@ -155,34 +152,43 @@ for epoch in range(config.epochs):
     # Validation step
     model.eval()
 
-    val_loss = 0.0
-
-    val_progress_bar = tqdm(enumerate(val_loader), total=len(val_loader), desc=f'Epoch [{epoch + 1}/{config.epochs}] Validating')
+    val_labels_list, val_outputs_list = [], []
 
     with torch.no_grad():
-        for _, batch in val_progress_bar:
-            if config.window_size == 0.63:
-                val_inputs, val_labels = batch[0].to(device), batch[1].to(device).float().unsqueeze(1)
-            else:
-                val_inputs = [item[0].to(device) for item in batch]
-                val_labels = [item[1].to(device).float().unsqueeze(1) for item in batch]
-                val_inputs = torch.cat(val_inputs, dim=0)
-                val_labels = torch.cat(val_labels, dim=0)
+        for batch in tqdm(val_loader, desc='Validating'):
+            val_inputs = [item[1].to(device) for item in batch]
+            val_labels = [item[2].to(device).float().unsqueeze(1) for item in batch]
+
+            val_inputs = torch.cat(val_inputs, dim=0)
+            val_labels = torch.cat(val_labels, dim=0)
 
             val_outputs = model(val_inputs)
+            
+            val_outputs_avg = val_outputs.mean().unsqueeze(0)
+            val_outputs_list.append(val_outputs_avg)
 
-            loss = bce_criterion(val_outputs, val_labels)
-            val_loss += loss.item()
-    
-    val_loss /= len(val_loader)
-    wandb.log({"val_loss": val_loss, "epoch": epoch + 1})
+            val_labels_list.append(val_labels[0].unsqueeze(0))
 
-    # Update gamma for the next epoch if roc_star_loss is used
-    if config.roc_star:
+    # Concatenate results
+    val_labels_cat = torch.cat(val_labels_list, dim=0).cpu().numpy()
+    val_outputs_cat = torch.cat(val_outputs_list, dim=0).cpu().numpy()
+
+    # Metrics calculation
+    auroc = roc_auc_score(val_labels_cat, val_outputs_cat)
+    wandb.log({"auroc": auroc, "epoch": epoch + 1})
+
+    # Calculate FPR and FNR
+    fpr, fnr = calculate_fpr_fnr(val_labels_cat, val_outputs_cat)
+    wandb.log({"fpr": fpr, "fnr": fnr})
+
+    logging.info(f'Epoch [{epoch + 1}/{config.epochs}]: AUROC = {auroc:.4f}, FPR = {fpr:.4f}, FNR = {fnr:.4f}')
+
+    # Update gamma for the next epoch
+    if config.roc_star_loss:
         epoch_gamma = epoch_update_gamma(last_all_labels, last_all_preds, epoch)
 
-    # Save the top k models based on val_loss
-    save_top_k_model_with_loss(exp_dir, model, epoch, val_loss, top_k_val_losses, k=3)
+    # Save the top 3 AUC models
+    save_top_k_model_with_auroc(exp_dir, model, epoch, auroc, top_3_auc_scores, k=3)
 
 # After last epoch, save final model
 final_checkpoint = os.path.join(exp_dir, f'model_last_epoch.ckpt')
