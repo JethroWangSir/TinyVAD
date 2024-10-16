@@ -184,7 +184,7 @@ for epoch in range(config.epochs):
     logging.info(f'Epoch [{epoch + 1}/{config.epochs}]: AUROC = {auroc:.4f}, FPR = {fpr:.4f}, FNR = {fnr:.4f}')
 
     # Update gamma for the next epoch
-    if config.roc_star_loss:
+    if config.roc_star:
         epoch_gamma = epoch_update_gamma(last_all_labels, last_all_preds, epoch)
 
     # Save the top 3 AUC models
