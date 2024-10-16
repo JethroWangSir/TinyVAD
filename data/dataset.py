@@ -393,7 +393,7 @@ class SCF_ESC(Dataset):
         return self.noise_zero_power_count
 
 class AVA(Dataset):
-    def __init__(self, root_dir, sample_duration=0.63, overlap=0.875, sample_rate=16000, n_fft=400, n_mels=64, win_length=400, hop_length=160):
+    def __init__(self, root_dir, sample_duration=0.63, overlap=0.125, sample_rate=16000, n_fft=400, n_mels=64, win_length=400, hop_length=160):
         self.root_dir = root_dir
         self.audio_paths = []
         self.labels = []
@@ -480,7 +480,7 @@ class AVA(Dataset):
         return tuple(segments)
 
 class AVA_ESC(Dataset):
-    def __init__(self, ava_dir, esc_csv, esc_audio_dir, snr=10, sample_duration=0.63, overlap=0.875, sample_rate=16000, n_fft=400, n_mels=64, win_length=400, hop_length=160):
+    def __init__(self, ava_dir, esc_csv, esc_audio_dir, snr=10, sample_duration=0.63, overlap=0.125, sample_rate=16000, n_fft=400, n_mels=64, win_length=400, hop_length=160):
         self.ava = AVA(ava_dir, sample_duration, overlap, sample_rate, n_fft, n_mels, win_length, hop_length)
         self.esc_csv = esc_csv
         self.esc_audio_dir = esc_audio_dir
