@@ -44,7 +44,12 @@ shift_duration = WINDOW_SIZE * 0.75
 def predict(audio_file, threshold):
     start_time = time.time()
 
-    waveform, sample_rate = torchaudio.load(audio_file)
+    try:
+        waveform, sample_rate = torchaudio.load(audio_file)
+    except Exception as e:
+        # yield "Error loading audio file.", None, None, None
+        yield None, None, None, None
+        return
     
     # Calculate total audio duration
     audio_duration = waveform.size(1) / sample_rate
@@ -128,7 +133,8 @@ with gr.Blocks() as demo:
             time_output = gr.Textbox(label="Inference Time (seconds)")
 
     # Connect inputs and outputs
-    gr.Button("Predict").click(predict, [audio_input, threshold_input], [prediction_output, probability_output, time_output, plot_output])
+    # gr.Button("Predict").click(predict, [audio_input, threshold_input], [prediction_output, probability_output, time_output, plot_output])
+    audio_input.change(predict, [audio_input, threshold_input], [prediction_output, probability_output, time_output, plot_output])
 
 # Launch the interface
 if __name__ == "__main__":
