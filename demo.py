@@ -30,7 +30,7 @@ elif WINDOW_SIZE == 0.16:
 elif WINDOW_SIZE == 0.025:
     patch_size = 1
 model = TinyVAD(1, 32, 64, patch_size, 2).to(device)
-checkpoint_path = '/share/nas169/jethrowang/TinyVAD/exp/exp_segment_tinyvad/model.ckpt'
+checkpoint_path = '/share/nas169/jethrowang/TinyVAD/exp/exp_0.16_tinyvad/model_epoch_112_auroc=0.8344.ckpt'
 model.load_state_dict(torch.load(checkpoint_path))
 model.eval()
 

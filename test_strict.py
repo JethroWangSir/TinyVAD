@@ -18,7 +18,6 @@ from model.tinyvad import TinyVAD
 from function.util import calculate_fpr_fnr
 
 WINDOW_SIZE = 0.16
-# MEDIAN_KERNEL_SIZE = 9
 THRESHOLD = 0.5
 
 # Set GPU and paths
@@ -62,14 +61,16 @@ with torch.no_grad():
         start_time = time.time()
         val_outputs = model(val_inputs)
         end_time = time.time()
-
-        # Apply median filter to each batch's predictions
-        # val_outputs_np = val_outputs.cpu().numpy()
-        # val_outputs_smoothed = torch.tensor(median_filter(val_outputs_np, size=(MEDIAN_KERNEL_SIZE, 1))).to(device)
         
-        val_outputs_avg = val_outputs.mean().unsqueeze(0)
-        val_outputs_list.append(val_outputs_avg)
+        val_outputs_binary = (val_outputs > THRESHOLD).float().cpu().numpy()
+        # print(f'val_outputs_binary: {val_outputs_binary}\nval_outputs_binary shape: {val_outputs_binary.shape}')
+        
+        if val_outputs_binary.any():
+            val_scores = torch.tensor([[1.0]])
+        else:
+            val_scores = torch.tensor([[0.0]])
 
+        val_outputs_list.append(val_scores)
         val_labels_list.append(val_labels[0].unsqueeze(0))
 
         # Record inference time
@@ -82,7 +83,7 @@ val_outputs_cat = torch.cat(val_outputs_list, dim=0).cpu().numpy()
 
 # Metrics calculation
 auroc = roc_auc_score(val_labels_cat, val_outputs_cat)
-binarized_preds = torch.tensor(val_outputs_cat >= THRESHOLD).float().cpu().numpy()
+binarized_preds = (val_outputs_cat >= THRESHOLD).astype(float)
 accuracy = accuracy_score(val_labels_cat, binarized_preds)
 f2_score = fbeta_score(val_labels_cat, binarized_preds, beta=2)
 avg_inference_time = sum(inference_times) / len(inference_times)
@@ -103,7 +104,7 @@ plt.plot(range(1, 11), rtf_list, marker='o', color='tab:red')
 plt.xlabel('Duration (seconds)', fontproperties=font_prop)
 plt.ylabel('Real-Time Factor (RTF)', fontproperties=font_prop)
 plt.grid(True)
-plt.savefig(os.path.join(exp_dir, 'rtf_plot.png'), dpi=800)
+plt.savefig(os.path.join(exp_dir, 'rtf_plot_strict.png'), dpi=800)
 plt.show()
 
 # ROC curve calculation
@@ -124,7 +125,7 @@ for thr in thresholds_to_plot:
     idx = np.argmin(np.abs(thresholds - thr))
     plt.plot(fpr[idx], tpr[idx], marker='o', label=f'Threshold={thr:.1f}')
 plt.legend(prop=font_prop)
-plt.savefig(os.path.join(exp_dir, 'auroc_plot.png'), dpi=800)
+plt.savefig(os.path.join(exp_dir, 'auroc_plot_strict.png'), dpi=800)
 plt.show()
 
 # FPR/FNR calculation
@@ -136,13 +137,13 @@ results = {
     "FPR": fpr, "FNR": fnr, "Avg Inference Time (ms)": avg_inference_time,
     "Real-Time Factor (RTF)": rtf_list
 }
-with open(os.path.join(exp_dir, 'test.json'), 'w') as f:
+with open(os.path.join(exp_dir, 'test_strict.json'), 'w') as f:
     json.dump(results, f, indent=4)
 
 params_count = summary(model, input_size=(1, 1, 64, frame_size), verbose=0).total_params / 1_000
 macs = profile_macs(model, torch.randn(1, 1, 64, frame_size).to(device)) / 1_000_000
 model_info = {"Param Count (k)": params_count, "MACs (M)": macs}
-with open(os.path.join(exp_dir, 'model_info.json'), 'w') as f:
+with open(os.path.join(exp_dir, 'model_info_strict.json'), 'w') as f:
     json.dump(model_info, f, indent=4)
 
 # Print results

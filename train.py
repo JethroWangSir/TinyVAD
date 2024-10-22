@@ -18,7 +18,7 @@ from function.util import lr_lambda, save_top_k_model_with_auroc, calculate_fpr_
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-name = f'exp_0.16_esc_tinyvad'
+name = f'exp_0.16_esc_roc-star_0.2_tinyvad'
 exp_dir = f'./exp/{name}/'
 os.makedirs(exp_dir, exist_ok=True)
 
@@ -34,8 +34,8 @@ wandb.init(project="TinyVAD", name=name, config={
     "hold_ratio": 0.45,
     "min_lr": 0.001,
     "augment": True,
-    "roc_star": False,
-    "roc_star_weight": 0.0,
+    "roc_star": True,
+    "roc_star_weight": 0.2,
     "train_with_esc": True,
     "window_size": 0.16,
 })
@@ -64,7 +64,7 @@ if config.train_with_esc:
     )
 else:
     train_dataset = SCF(train_manifests, sample_duration=config.window_size, augment=config.augment)
-train_loader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True)
+train_loader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True, num_workers=8, pin_memory=True)
 logging.info(f'Training set size: {len(train_loader)}')
 logging.info('Loading validation set...')
 val_dataset = AVA(root_dir=val_dir, sample_duration=config.window_size)

@@ -11,14 +11,14 @@ from data.dataset import AVA_ESC
 from model.tinyvad import TinyVAD
 from function.util import calculate_fpr_fnr
 
-WINDOW_SIZE = 0.63
+WINDOW_SIZE = 0.16
 THRESHOLD = 0.5
 
 # Set GPU
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-name = 'exp_0.63_tinyvad'
+name = 'exp_0.16_tinyvad_old'
 exp_dir = f'./exp/{name}/'
 os.makedirs(exp_dir, exist_ok=True)
 
@@ -35,7 +35,7 @@ elif WINDOW_SIZE == 0.16:
 elif WINDOW_SIZE == 0.025:
     patch_size = 1
 model = TinyVAD(1, 32, 64, patch_size, 2).to(device)
-checkpoint_path = os.path.join(exp_dir, 'model_epoch_104_auroc=0.9161.ckpt')
+checkpoint_path = os.path.join(exp_dir, 'model_epoch_146_auroc=0.8272.ckpt')
 model.load_state_dict(torch.load(checkpoint_path))
 model.eval()
 
